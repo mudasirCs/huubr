@@ -1,0 +1,24 @@
+:root {
+    --huubr-orange: #FF4D00;
+    --huubr-orange-hover: #E64500;
+    --huubr-green: #A4C639;
+    --huubr-green-hover: #93B233;
+    --huubr-text: #333333;
+    --huubr-text-light: #666666;
+  }
+  
+  .text-huubr-orange {
+    color: var(--huubr-orange);
+  }
+  
+  .bg-huubr-orange {
+    background-color: var(--huubr-orange);
+  }
+  
+  .text-huubr-green {
+    color: var(--huubr-green);
+  }
+  
+  .bg-huubr-green {
+    background-color: var(--huubr-green);
+  }

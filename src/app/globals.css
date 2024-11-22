@@ -3,19 +3,32 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --primary: #FF4D00;
+  --primary-hover: #E64500;
+  --secondary: #A4C639;
+  --secondary-hover: #93B233;
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --border: #E5E7EB;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text-primary);
+}
+
+input::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+/* Improve input visibility */
+input {
+  color: var(--text-primary) !important;
+  background-color: white !important;
+}
+
+/* Improve select visibility */
+select {
+  color: var(--text-primary) !important;
+  background-color: white !important;
 }
