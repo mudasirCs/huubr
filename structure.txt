@@ -10,6 +10,10 @@
 │   ├── migrations
 │   │   ├── 20241121064523_init
 │   │   │   └── migration.sql
+│   │   ├── 20241122024113_add_business_model
+│   │   │   └── migration.sql
+│   │   ├── 20241122024632_add_business_model
+│   │   │   └── migration.sql
 │   │   └── migration_lock.toml
 │   └── schema.prisma
 ├── public
@@ -20,32 +24,49 @@
 │   └── window.svg
 ├── src
 │   ├── app
-│   │   ├── (auth)
-│   │   │   ├── login
-│   │   │   │   └── page.tsx
-│   │   │   └── register
-│   │   │       └── page.tsx
 │   │   ├── api
 │   │   │   └── auth
 │   │   │       ├── [...nextauth]
 │   │   │       │   └── route.ts
 │   │   │       └── register
-│   │   │           └── route.tsx
+│   │   │           ├── business
+│   │   │           │   └── route.ts
+│   │   │           └── route.ts
 │   │   ├── favicon.ico
 │   │   ├── fonts
 │   │   │   ├── GeistMonoVF.woff
 │   │   │   └── GeistVF.woff
 │   │   ├── globals.css
 │   │   ├── layout.tsx
-│   │   └── page.tsx
+│   │   ├── page.tsx
+│   │   └── styles
+│   │       └── colors.css
+│   ├── components
+│   │   ├── BusinessRegistrationModal.tsx
+│   │   ├── Button.tsx
+│   │   ├── Modal.tsx
+│   │   ├── Notification.tsx
+│   │   ├── StepIndicator.tsx
+│   │   ├── StepTransition.tsx
+│   │   └── ui
+│   │       ├── checkbox.tsx
+│   │       ├── input.tsx
+│   │       ├── modal.tsx
+│   │       └── select.tsx
 │   ├── lib
 │   │   ├── auth-utils.ts
 │   │   ├── auth.ts
-│   │   └── prisma.ts
-│   └── providers
-│       └── session-provider.tsx
+│   │   ├── prisma.ts
+│   │   └── utils.ts
+│   ├── middleware.ts
+│   ├── providers
+│   │   └── session-provider.tsx
+│   ├── types
+│   │   └── forms.ts
+│   └── utils
+│       └── validation.ts
 ├── structure.txt
 ├── tailwind.config.ts
 └── tsconfig.json
 
-17 directories, 32 files
+22 directories, 48 files

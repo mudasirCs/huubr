@@ -7,45 +7,47 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  SUPER_ADMIN
-  ADMIN
-  BUSINESS_OWNER 
-  CUSTOMER
-  MODERATOR
-}
-
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  password      String
-  role          UserRole  @default(CUSTOMER)
-  emailVerified Boolean   @default(false)
-  points        Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String      @id @default(cuid())
+  email                 String      @unique
+  name                  String?
+  password              String
+  role                  UserRole    @default(CUSTOMER)
+  emailVerified         Boolean     @default(false)
+  points                Int         @default(0)
+  businesses            Business[]
+  verificationToken     String?     @unique
+  passwordResetToken    String?     @unique
+  passwordResetExpires  DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   @@map("users")
 }
 
-model Permission {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model Business {
+  id            String    @id @default(cuid())
+  name          String
+  category      String
+  phone         String
+  website       String?
+  address       String
+  city          String
+  county        String
+  eircode       String?
+  openingHours  Json
+  ownerId       String
+  owner         User      @relation(fields: [ownerId], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  @@map("permissions") 
+  @@map("businesses")
 }
 
-model RolePermission {
-  id           String     @id @default(cuid())
-  role         UserRole
-  permissionId String
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-
-  @@unique([role, permissionId])
-  @@map("role_permissions")
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  BUSINESS_OWNER
+  CUSTOMER
+  MODERATOR
 }
