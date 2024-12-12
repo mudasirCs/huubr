@@ -1,15 +1,13 @@
 // src/app/api/auth/register/business/route.ts
-
 import { prisma } from "@/lib/prisma"
 import { hash } from "bcryptjs"
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { Prisma } from '@prisma/client'
+import { Prisma } from '.prisma/client'
 import crypto from 'crypto'
 import { sendEmail } from '@/lib/email'
 import { createElement } from 'react';
 import VerificationEmail from '@/components/emails/VerificationEmail';
-
 
 type PrismaErrorTarget = {
   target?: string[];
@@ -109,7 +107,7 @@ export async function POST(req: Request) {
     const hashedPassword = await hash(validatedData.password, 12)
 
     // Use transaction to create both user and business
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // console.log("Starting transaction")
       
       // Generate verification token
@@ -154,6 +152,14 @@ export async function POST(req: Request) {
         }
       })
       // console.log("Business created:", business.id)
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          emailVerificationStatus: 'PENDING',
+          emailVerificationAttempts: 0
+        }
+      });
 
       return { user, business, rawToken }
     })

@@ -1,6 +1,6 @@
 // src/components/InputField.tsx
 
-interface InputFieldProps {
+export interface InputFieldProps {
   label: string;
   name: string;
   type?: string;

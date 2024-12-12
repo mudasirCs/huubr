@@ -6,8 +6,23 @@ import './globals.css'
 
 export const metadata = {
   title: 'Huubr - Business Directory',
-  description: 'Your one-stop platform for local business directory management.'
+  description: 'Your one-stop platform for local business directory management.',
+  openGraph: {
+    type: 'website',
+    locale: 'en_IE',
+    url: process.env.NEXT_PUBLIC_APP_URL,
+    siteName: 'Huubr',
+    images: [
+      {
+        url: `${process.env.NEXT_PUBLIC_APP_URL}/og-image.jpg`,
+        width: 1200,
+        height: 630,
+        alt: 'Huubr'
+      }
+    ]
+  }
 }
+
 
 export default function RootLayout({
   children,

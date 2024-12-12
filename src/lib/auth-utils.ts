@@ -20,3 +20,16 @@ export async function requireAuth() {
   
   return user
 }
+
+export function getRedirectUrl(role?: string) {
+  switch (role) {
+    case "BUSINESS_OWNER":
+      return "/business/dashboard"
+    case "ADMIN":
+      return "/admin/dashboard"
+    case "CUSTOMER":
+      return "/customer/dashboard"
+    default:
+      return "/dashboard"
+  }
+}

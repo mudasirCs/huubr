@@ -261,6 +261,7 @@ if __name__ == &quot;__main__&quot;:
     &quot;@radix-ui/react-checkbox&quot;: &quot;^1.1.2&quot;,
     &quot;@react-email/components&quot;: &quot;^0.0.31&quot;,
     &quot;@react-email/render&quot;: &quot;^1.0.3&quot;,
+    &quot;@react-oauth/google&quot;: &quot;^0.12.1&quot;,
     &quot;bcryptjs&quot;: &quot;^2.4.3&quot;,
     &quot;clsx&quot;: &quot;^2.1.1&quot;,
     &quot;framer-motion&quot;: &quot;^11.11.17&quot;,
@@ -282,6 +283,7 @@ if __name__ == &quot;__main__&quot;:
     &quot;@types/node&quot;: &quot;^20&quot;,
     &quot;@types/react&quot;: &quot;^18&quot;,
     &quot;@types/react-dom&quot;: &quot;^18&quot;,
+    &quot;@types/webpack&quot;: &quot;^5.28.5&quot;,
     &quot;eslint&quot;: &quot;^8&quot;,
     &quot;eslint-config-next&quot;: &quot;15.0.3&quot;,
     &quot;postcss&quot;: &quot;^8&quot;,
@@ -579,13 +581,27 @@ volumes:
   </document>
   <document index="11">
     <source>next.config.ts</source>
-    <document_content>&lt;![CDATA[/** @type {import('next').NextConfig} */
-const nextConfig = {
+    <document_content>&lt;![CDATA[import type { Configuration } from 'webpack'
+import type { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       allowedOrigins: ['localhost:3000']
     }
-  }
+  },
+  env: {
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+  },
+  webpack: (config: Configuration, { isServer }: { isServer: boolean }) =&gt; {
+    if (!isServer) {
+      config.watchOptions = {
+        poll: 1000,
+        aggregateTimeout: 300,
+      }
+    }
+    return config
+  },
 }
 
 module.exports = nextConfig]]&gt;</document_content>
@@ -596,11 +612,30 @@ module.exports = nextConfig]]&gt;</document_content>
   </document>
   <document index="12">
     <source>src/middleware.ts</source>
-    <document_content>&lt;![CDATA[import { withAuth } from &quot;next-auth/middleware&quot;
-import { NextResponse } from &quot;next/server&quot;
+    <document_content>&lt;![CDATA[// src/middleware.ts
+import { withAuth } from 'next-auth/middleware'
+import { NextResponse } from 'next/server'
 
 export default withAuth(
-  function middleware() {
+  function middleware(req) {
+    const token = req.nextauth.token
+    const path = req.nextUrl.pathname
+
+    // Check for admin routes
+    if (path.startsWith('/admin') &amp;&amp; token?.role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/dashboard', req.url))
+    }
+
+    // Check for business routes
+    if (path.startsWith('/business') &amp;&amp; token?.role !== 'BUSINESS_OWNER') {
+      return NextResponse.redirect(new URL('/dashboard', req.url))
+    }
+
+    // Check for moderator routes
+    if (path.startsWith('/moderator') &amp;&amp; token?.role !== 'MODERATOR') {
+      return NextResponse.redirect(new URL('/dashboard', req.url))
+    }
+
     return NextResponse.next()
   },
   {
@@ -613,8 +648,10 @@ export default withAuth(
 export const config = {
   matcher: [
     '/dashboard/:path*',
+    '/admin/:path*',
+    '/business/:path*',
+    '/moderator/:path*',
     '/profile/:path*',
-    '/business/:path*'
   ]
 }]]&gt;</document_content>
   </document>
@@ -643,6 +680,58 @@ export const config = {
     <document_content/>
   </document>
   <document index="13">
+    <source>prisma/migrations/20241212064203_add_social_auth/migration.sql</source>
+    <document_content>&lt;![CDATA[-- AlterTable
+ALTER TABLE &quot;users&quot; ADD COLUMN     &quot;image&quot; TEXT;
+
+-- CreateTable
+CREATE TABLE &quot;Account&quot; (
+    &quot;id&quot; TEXT NOT NULL,
+    &quot;userId&quot; TEXT NOT NULL,
+    &quot;type&quot; TEXT NOT NULL,
+    &quot;provider&quot; TEXT NOT NULL,
+    &quot;providerAccountId&quot; TEXT NOT NULL,
+    &quot;refresh_token&quot; TEXT,
+    &quot;access_token&quot; TEXT,
+    &quot;expires_at&quot; INTEGER,
+    &quot;token_type&quot; TEXT,
+    &quot;scope&quot; TEXT,
+    &quot;id_token&quot; TEXT,
+    &quot;session_state&quot; TEXT,
+
+    CONSTRAINT &quot;Account_pkey&quot; PRIMARY KEY (&quot;id&quot;)
+);
+
+-- CreateTable
+CREATE TABLE &quot;Session&quot; (
+    &quot;id&quot; TEXT NOT NULL,
+    &quot;sessionToken&quot; TEXT NOT NULL,
+    &quot;userId&quot; TEXT NOT NULL,
+    &quot;expires&quot; TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT &quot;Session_pkey&quot; PRIMARY KEY (&quot;id&quot;)
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX &quot;Account_provider_providerAccountId_key&quot; ON &quot;Account&quot;(&quot;provider&quot;, &quot;providerAccountId&quot;);
+
+-- CreateIndex
+CREATE UNIQUE INDEX &quot;Session_sessionToken_key&quot; ON &quot;Session&quot;(&quot;sessionToken&quot;);
+
+-- AddForeignKey
+ALTER TABLE &quot;Account&quot; ADD CONSTRAINT &quot;Account_userId_fkey&quot; FOREIGN KEY (&quot;userId&quot;) REFERENCES &quot;users&quot;(&quot;id&quot;) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE &quot;Session&quot; ADD CONSTRAINT &quot;Session_userId_fkey&quot; FOREIGN KEY (&quot;userId&quot;) REFERENCES &quot;users&quot;(&quot;id&quot;) ON DELETE CASCADE ON UPDATE CASCADE;
+]]&gt;</document_content>
+  </document>
+  <document index="14">
+    <source>prisma/migrations/20241212070946_make_password_optional/migration.sql</source>
+    <document_content>&lt;![CDATA[-- AlterTable
+ALTER TABLE &quot;users&quot; ALTER COLUMN &quot;password&quot; DROP NOT NULL;
+]]&gt;</document_content>
+  </document>
+  <document index="15">
     <source>prisma/migrations/20241210131954_init_schema/migration.sql</source>
     <document_content>&lt;![CDATA[-- CreateEnum
 CREATE TYPE &quot;UserRole&quot; AS ENUM ('SUPER_ADMIN', 'ADMIN', 'BUSINESS_OWNER', 'CUSTOMER', 'MODERATOR');
@@ -697,7 +786,15 @@ CREATE UNIQUE INDEX &quot;users_passwordResetToken_key&quot; ON &quot;users&quot
 ALTER TABLE &quot;businesses&quot; ADD CONSTRAINT &quot;businesses_ownerId_fkey&quot; FOREIGN KEY (&quot;ownerId&quot;) REFERENCES &quot;users&quot;(&quot;id&quot;) ON DELETE RESTRICT ON UPDATE CASCADE;
 ]]&gt;</document_content>
   </document>
-  <document index="14">
+  <document index="16">
+    <source>prisma/migrations/20241211083014_add_email_verification_fields/migration.sql</source>
+    <document_content>&lt;![CDATA[-- AlterTable
+ALTER TABLE &quot;users&quot; ADD COLUMN     &quot;emailVerificationAttempts&quot; INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     &quot;emailVerificationLastAttempt&quot; TIMESTAMP(3),
+ADD COLUMN     &quot;emailVerificationStatus&quot; TEXT DEFAULT 'PENDING';
+]]&gt;</document_content>
+  </document>
+  <document index="17">
     <source>src/hooks/useDebounce.ts</source>
     <document_content>&lt;![CDATA[import { useCallback, useRef } from 'react';
 
@@ -717,7 +814,7 @@ export function useDebounce(delay: number) {
   return debounce;
 }]]&gt;</document_content>
   </document>
-  <document index="15">
+  <document index="18">
     <source>src/app/globals.css</source>
     <document_content>&lt;![CDATA[@tailwind base;
 @tailwind components;
@@ -754,7 +851,7 @@ select {
   background-color: white !important;
 }]]&gt;</document_content>
   </document>
-  <document index="16">
+  <document index="19">
     <source>src/app/page.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -819,10 +916,10 @@ export default function Home() {
   )
 }]]&gt;</document_content>
   </document>
-  <document index="17">
+  <document index="20">
     <source>src/app/layout.tsx</source>
     <document_content>&lt;![CDATA[// src/app/layout.tsx
-
+import { Suspense } from 'react'
 import { Toaster } from 'react-hot-toast'
 import AuthProvider from '@/providers/session-provider'
 import './globals.css'
@@ -840,16 +937,18 @@ export default function RootLayout({
   return (
     &lt;html lang=&quot;en&quot; suppressHydrationWarning&gt;
       &lt;body suppressHydrationWarning&gt;
-        &lt;AuthProvider&gt;
-          {children}
-          &lt;Toaster position=&quot;top-right&quot; /&gt;
-        &lt;/AuthProvider&gt;
+        &lt;Suspense fallback={null}&gt;
+          &lt;AuthProvider&gt;
+            {children}
+            &lt;Toaster position=&quot;top-right&quot; /&gt;
+          &lt;/AuthProvider&gt;
+        &lt;/Suspense&gt;
       &lt;/body&gt;
     &lt;/html&gt;
   )
 }]]&gt;</document_content>
   </document>
-  <document index="18">
+  <document index="21">
     <source>src/emails/VerificationEmail.tsx</source>
     <document_content>&lt;![CDATA[// src/emails/VerificationEmail.tsx
 import {
@@ -963,7 +1062,7 @@ import {
     textDecoration: 'underline',
   };]]&gt;</document_content>
   </document>
-  <document index="19">
+  <document index="22">
     <source>src/types/business.ts</source>
     <document_content>&lt;![CDATA[export interface BusinessFormData {
     fullName: string;
@@ -1022,7 +1121,7 @@ import {
   export type WeekDay = typeof WEEK_DAYS[number];
   export type BusinessCategory = typeof BUSINESS_CATEGORIES[number];]]&gt;</document_content>
   </document>
-  <document index="20">
+  <document index="23">
     <source>src/types/forms.ts</source>
     <document_content>&lt;![CDATA[export interface BusinessRegistrationData {
     // Step 1: Owner Information
@@ -1055,7 +1154,7 @@ import {
     [key: string]: string;
   }]]&gt;</document_content>
   </document>
-  <document index="21">
+  <document index="24">
     <source>src/types/react-email.d.ts</source>
     <document_content>&lt;![CDATA[// src/types/react-email.d.ts
 
@@ -1083,7 +1182,7 @@ declare module '@react-email/components' {
     export function render(component: ReactElement): Promise&lt;string&gt;;
   }]]&gt;</document_content>
   </document>
-  <document index="22">
+  <document index="25">
     <source>src/components/Notification.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -1143,11 +1242,11 @@ export default function Notification({
   )
 }]]&gt;</document_content>
   </document>
-  <document index="23">
+  <document index="26">
     <source>src/components/InputField.tsx</source>
     <document_content>&lt;![CDATA[// src/components/InputField.tsx
 
-interface InputFieldProps {
+export interface InputFieldProps {
   label: string;
   name: string;
   type?: string;
@@ -1197,7 +1296,56 @@ export default function InputField({
   )
 }]]&gt;</document_content>
   </document>
-  <document index="24">
+  <document index="27">
+    <source>src/components/ResendVerification.tsx</source>
+    <document_content>&lt;![CDATA[// src/components/ResendVerification.tsx
+'use client';
+
+import { useState } from 'react';
+import { toast } from 'react-hot-toast';
+import Button from './Button';
+
+export function ResendVerification({ email }: { email: string }) {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleResend = async () =&gt; {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to resend verification email');
+      }
+
+      toast.success('Verification email sent successfully');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to resend verification email');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    &lt;Button
+      variant=&quot;outline&quot;
+      onClick={handleResend}
+      isLoading={isLoading}
+      className=&quot;mt-4&quot;
+    &gt;
+      Resend Verification Email
+    &lt;/Button&gt;
+  );
+}]]&gt;</document_content>
+  </document>
+  <document index="28">
     <source>src/components/StepIndicator.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -1275,7 +1423,7 @@ export default function StepIndicator({
   )
 }]]&gt;</document_content>
   </document>
-  <document index="25">
+  <document index="29">
     <source>src/components/Button.tsx</source>
     <document_content>&lt;![CDATA[interface ButtonProps extends React.ButtonHTMLAttributes&lt;HTMLButtonElement&gt; {
     variant?: 'primary' | 'secondary' | 'outline'
@@ -1322,7 +1470,7 @@ export default function StepIndicator({
     )
   }]]&gt;</document_content>
   </document>
-  <document index="26">
+  <document index="30">
     <source>src/components/BusinessRegistrationModal.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -1837,7 +1985,7 @@ console.log('BusinessRegistrationModal render, current step:', step);
 );
 }]]&gt;</document_content>
   </document>
-  <document index="27">
+  <document index="31">
     <source>src/components/StepTransition.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -1877,7 +2025,7 @@ export default function StepTransition({
   )
 }]]&gt;</document_content>
   </document>
-  <document index="28">
+  <document index="32">
     <source>src/components/Modal.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -1899,7 +2047,7 @@ export default function Modal({ isOpen, children }: ModalProps) {
   )
 }]]&gt;</document_content>
   </document>
-  <document index="29">
+  <document index="33">
     <source>src/lib/email.ts</source>
     <document_content>&lt;![CDATA[// src/lib/email.ts
 import { Resend } from 'resend';
@@ -1915,38 +2063,80 @@ interface SendEmailProps {
   html?: string;
 }
 
+// src/lib/email.ts
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+
+async function sleep(ms: number) {
+  return new Promise(resolve =&gt; setTimeout(resolve, ms));
+}
+
+export async function sendEmailWithRetry({ to, subject, react, html }: SendEmailProps) {
+  let lastError: Error | unknown;
+  
+  for (let attempt = 1; attempt &lt;= MAX_RETRIES; attempt++) {
+    try {
+      const result = await sendEmail({ to, subject, react, html });
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt &lt; MAX_RETRIES) {
+        await sleep(RETRY_DELAY * attempt); // Exponential backoff
+        continue;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 export async function sendEmail({ to, subject, react, html }: SendEmailProps) {
   if (!react &amp;&amp; !html) {
     throw new Error('Either react or html must be provided');
   }
 
-  const htmlContent = react ? render(react) : html;
-
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Email would be sent in production:');
-    console.log({ to, subject, html: htmlContent });
-    return;
-  }
-
   try {
-    await resend.emails.send({
-      from: 'Huubr &lt;noreply@huubr.com&gt;',
+    let htmlContent: string;
+    
+    if (react) {
+      // Ensure render returns a string
+      htmlContent = await render(react);
+    } else {
+      htmlContent = html as string;
+    }
+
+    // console.log('Sending email with HTML content:', htmlContent);
+
+    const result = await resend.emails.send({
+      from: 'onboarding@resend.dev',
       to,
       subject,
-      html: htmlContent as string,
+      html: htmlContent,
     });
+
+    return result;
   } catch (error) {
-    console.error('Failed to send email:', error);
+    // console.error('Failed to send email:', error);
+    // Log more details about the error
+    if (error instanceof Error) {
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+    }
     throw error;
   }
 }]]&gt;</document_content>
   </document>
-  <document index="30">
+  <document index="34">
     <source>src/lib/auth.ts</source>
     <document_content>&lt;![CDATA[import { NextAuthOptions } from &quot;next-auth&quot;
 import CredentialsProvider from &quot;next-auth/providers/credentials&quot;
+import GoogleProvider from &quot;next-auth/providers/google&quot;
+import FacebookProvider from &quot;next-auth/providers/facebook&quot;
 import { PrismaAdapter } from &quot;@next-auth/prisma-adapter&quot;
-import bcrypt from &quot;bcryptjs&quot;
+import { compare } from &quot;bcryptjs&quot;
 import { UserRole } from &quot;@prisma/client&quot;
 import { prisma } from &quot;./prisma&quot;
 
@@ -1971,12 +2161,14 @@ declare module &quot;next-auth/adapters&quot; {
 }
 
 export const authOptions: NextAuthOptions = {
+  debug: true,
   adapter: PrismaAdapter(prisma),
   session: {
     strategy: &quot;jwt&quot;
   },
   pages: {
     signIn: &quot;/login&quot;,
+    error: &quot;/auth/error&quot;
   },
   providers: [
     CredentialsProvider({
@@ -1997,18 +2189,19 @@ export const authOptions: NextAuthOptions = {
         });
 
         if (!user || !user.password) {
-          throw new Error(&quot;User not found&quot;);
+          throw new Error(&quot;User not found with this email&quot;);
         }
 
-        const isPasswordValid = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
+        if (!user.emailVerified) {
+          throw new Error(&quot;Please verify your email before logging in&quot;)
+        }
 
-        if (!isPasswordValid) {
+        const isValid = await compare(credentials.password, user.password);
+        
+        if (!isValid) {
           throw new Error(&quot;Invalid password&quot;);
         }
-
+        
         return {
           id: user.id,
           email: user.email,
@@ -2016,20 +2209,123 @@ export const authOptions: NextAuthOptions = {
           role: user.role,
         };
       }
-    })
-  ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
+    }),
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          prompt: &quot;select_account&quot;,
+          access_type: &quot;offline&quot;,
+          response_type: &quot;code&quot;
+        }
+      },
+      async profile(profile) {
         return {
-          ...token,
-          id: user.id,
-          role: user.role,
+          id: profile.sub,
+          name: profile.name,
+          email: profile.email,
+          image: profile.picture,
+          role: &quot;CUSTOMER&quot; as UserRole,
+          emailVerified: true
         }
       }
-      return token
+    }),
+    FacebookProvider({
+      clientId: process.env.FACEBOOK_CLIENT_ID!,
+      clientSecret: process.env.FACEBOOK_CLIENT_SECRET!,
+      async profile(profile) {
+        return {
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          image: profile.picture?.data?.url,
+          role: &quot;CUSTOMER&quot; as UserRole,
+          emailVerified: true
+        }
+      }
+    }),
+  ],
+  callbacks: {
+    async signIn({ user, account, profile }) {
+      console.log(&quot;SignIn Callback:&quot;, { user, account, profile });
+      
+      try {
+        if (account?.provider === &quot;google&quot; || account?.provider === &quot;facebook&quot;) {
+          const existingUser = await prisma.user.findUnique({
+            where: { email: user.email! }
+          });
+  
+          if (existingUser) {
+            // Update existing user
+            await prisma.user.update({
+              where: { id: existingUser.id },
+              data: { 
+                emailVerified: true,
+                name: user.name || existingUser.name,
+                // Only update image if it exists
+                ...(user.image ? { image: user.image } : {})
+              }
+            });
+            return true;
+          } else {
+            // Create new user
+            await prisma.user.create({
+              data: {
+                email: user.email!,
+                name: user.name!,
+                // Only include image if it exists
+                ...(user.image ? { image: user.image } : {}),
+                role: &quot;CUSTOMER&quot;,
+                emailVerified: true,
+                accounts: {
+                  create: {
+                    type: account.type,
+                    provider: account.provider,
+                    providerAccountId: account.providerAccountId,
+                    access_token: account.access_token,
+                    expires_at: account.expires_at,
+                    token_type: account.token_type,
+                    scope: account.scope,
+                    id_token: account.id_token,
+                    refresh_token: account.refresh_token,
+                  }
+                }
+              }
+            });
+            return true;
+          }
+        }
+        return true;
+      } catch (error) {
+        console.error(&quot;Error in signIn callback:&quot;, error);
+        return false;
+      }
+    },
+    async jwt({ token, user, account, trigger }) {
+      console.log(&quot;JWT Callback:&quot;, { token, user, account, trigger });
+      
+      if (trigger === &quot;signIn&quot; &amp;&amp; account) {
+        // Get user from database after social sign in
+        const dbUser = await prisma.user.findUnique({
+          where: { email: token.email! }
+        });
+        
+        if (dbUser) {
+          token.id = dbUser.id;
+          token.role = dbUser.role;
+        }
+      } else if (user) {
+        // Normal sign in
+        token.id = user.id;
+        token.role = user.role;
+      }
+      
+      return token;
     },
     async session({ session, token }) {
+      console.log(&quot;Session Callback:&quot;, { session, token });
+      
       return {
         ...session,
         user: {
@@ -2037,12 +2333,26 @@ export const authOptions: NextAuthOptions = {
           id: token.id as string,
           role: token.role as UserRole,
         }
-      }
+      };
+    }
+  },
+  events: {
+    async signIn(message) {
+      console.log(&quot;SignIn Event:&quot;, message);
+    },
+    async createUser(message) {
+      console.log(&quot;CreateUser Event:&quot;, message);
+    },
+    async linkAccount(message) {
+      console.log(&quot;LinkAccount Event:&quot;, message);
+    },
+    async session(message) {
+      console.log(&quot;Session Event:&quot;, message);
     }
   }
 }]]&gt;</document_content>
   </document>
-  <document index="31">
+  <document index="35">
     <source>src/lib/utils.ts</source>
     <document_content>&lt;![CDATA[import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
@@ -2066,7 +2376,7 @@ export function formatTime(time: string) {
   })
 }]]&gt;</document_content>
   </document>
-  <document index="32">
+  <document index="36">
     <source>src/lib/auth-utils.ts</source>
     <document_content>&lt;![CDATA[import { getServerSession } from &quot;next-auth&quot;
 import { redirect } from &quot;next/navigation&quot;
@@ -2089,9 +2399,22 @@ export async function requireAuth() {
   }
   
   return user
+}
+
+export function getRedirectUrl(role?: string) {
+  switch (role) {
+    case &quot;BUSINESS_OWNER&quot;:
+      return &quot;/business/dashboard&quot;
+    case &quot;ADMIN&quot;:
+      return &quot;/admin/dashboard&quot;
+    case &quot;CUSTOMER&quot;:
+      return &quot;/customer/dashboard&quot;
+    default:
+      return &quot;/dashboard&quot;
+  }
 }]]&gt;</document_content>
   </document>
-  <document index="33">
+  <document index="37">
     <source>src/lib/prisma.ts</source>
     <document_content>&lt;![CDATA[import { PrismaClient } from '@prisma/client'
 
@@ -2110,7 +2433,7 @@ export const prisma = globalThis.prisma ?? prismaClientSingleton()
 
 if (process.env.NODE_ENV !== 'production') globalThis.prisma = prisma]]&gt;</document_content>
   </document>
-  <document index="34">
+  <document index="38">
     <source>src/utils/validation.ts</source>
     <document_content>&lt;![CDATA[import { BusinessRegistrationData, ValidationErrors } from '@/types/forms'
 
@@ -2184,7 +2507,7 @@ export const validateStep3 = (data: Partial&lt;BusinessRegistrationData&gt;): Va
   return errors
 }]]&gt;</document_content>
   </document>
-  <document index="35">
+  <document index="39">
     <source>src/providers/session-provider.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -2198,15 +2521,139 @@ export default function AuthProvider({
   return &lt;SessionProvider&gt;{children}&lt;/SessionProvider&gt;
 }]]&gt;</document_content>
   </document>
-  <document index="36">
+  <document index="40">
     <source>src/app/fonts/GeistMonoVF.woff</source>
     <document_content/>
   </document>
-  <document index="36">
+  <document index="40">
     <source>src/app/fonts/GeistVF.woff</source>
     <document_content/>
   </document>
-  <document index="36">
+  <document index="40">
+    <source>src/app/verify-email/page.tsx</source>
+    <document_content>&lt;![CDATA[// src/app/verify-email/page.tsx
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { toast } from 'react-hot-toast';
+
+export default function VerifyEmailPage() {
+  const [status, setStatus] = useState&lt;'loading' | 'success' | 'error'&gt;('loading');
+  const [errorMessage, setErrorMessage] = useState&lt;string&gt;('');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const token = searchParams.get('token');
+
+  useEffect(() =&gt; {
+    const verifyEmail = async () =&gt; {
+      try {
+        // console.log('Starting verification process');
+        // console.log('Token to verify:', token);
+
+        if (!token) {
+          throw new Error('No verification token provided');
+        }
+
+        const response = await fetch(
+          `/api/auth/verify-email?token=${encodeURIComponent(token)}`,
+          {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json'
+            }
+          }
+        );
+
+        const data = await response.json();
+        // console.log('Server response:', { status: response.status, data });
+
+        if (!response.ok) {
+          throw new Error(data.error || data.details || 'Verification failed');
+        }
+
+        setStatus('success');
+        toast.success('Email verified successfully!');
+
+        // Redirect to login after success
+        setTimeout(() =&gt; {
+          router.push('/login');
+        }, 2000);
+
+      } catch (error) {
+        console.error('Verification error:', error);
+        setStatus('error');
+        setErrorMessage(
+          error instanceof Error 
+            ? error.message 
+            : 'An unexpected error occurred'
+        );
+        toast.error('Failed to verify email');
+      }
+    };
+
+    verifyEmail();
+  }, [token, router]);
+
+  return (
+    &lt;div className=&quot;min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8&quot;&gt;
+      &lt;div className=&quot;max-w-md w-full space-y-8&quot;&gt;
+        {status === 'loading' &amp;&amp; (
+          &lt;div className=&quot;text-center&quot;&gt;
+            &lt;h2 className=&quot;mt-6 text-3xl font-extrabold text-gray-900&quot;&gt;
+              Verifying your email...
+            &lt;/h2&gt;
+            &lt;div className=&quot;mt-4&quot;&gt;
+              &lt;div className=&quot;animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto&quot;&gt;&lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        )}
+
+        {status === 'success' &amp;&amp; (
+          &lt;div className=&quot;text-center&quot;&gt;
+            &lt;div className=&quot;mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100&quot;&gt;
+              &lt;svg className=&quot;h-6 w-6 text-green-600&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; viewBox=&quot;0 0 24 24&quot;&gt;
+                &lt;path strokeLinecap=&quot;round&quot; strokeLinejoin=&quot;round&quot; strokeWidth={2} d=&quot;M5 13l4 4L19 7&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/div&gt;
+            &lt;h2 className=&quot;mt-6 text-3xl font-extrabold text-gray-900&quot;&gt;
+              Email Verified!
+            &lt;/h2&gt;
+            &lt;p className=&quot;mt-2 text-sm text-gray-600&quot;&gt;
+              Your email has been verified successfully. Redirecting to login...
+            &lt;/p&gt;
+          &lt;/div&gt;
+        )}
+
+        {status === 'error' &amp;&amp; (
+          &lt;div className=&quot;text-center&quot;&gt;
+            &lt;div className=&quot;mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100&quot;&gt;
+              &lt;svg className=&quot;h-6 w-6 text-red-600&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; viewBox=&quot;0 0 24 24&quot;&gt;
+                &lt;path strokeLinecap=&quot;round&quot; strokeLinejoin=&quot;round&quot; strokeWidth={2} d=&quot;M6 18L18 6M6 6l12 12&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/div&gt;
+            &lt;h2 className=&quot;mt-6 text-3xl font-extrabold text-gray-900&quot;&gt;
+              Verification Failed
+            &lt;/h2&gt;
+            &lt;p className=&quot;mt-2 text-sm text-gray-600&quot;&gt;
+              {errorMessage}
+            &lt;/p&gt;
+            &lt;div className=&quot;mt-4&quot;&gt;
+              &lt;button
+                onClick={() =&gt; router.push('/login')}
+                className=&quot;inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary&quot;
+              &gt;
+                Go to Login
+              &lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        )}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}]]&gt;</document_content>
+  </document>
+  <document index="41">
     <source>src/app/styles/colors.css</source>
     <document_content>&lt;![CDATA[:root {
     --huubr-orange: #FF4D00;
@@ -2233,7 +2680,106 @@ export default function AuthProvider({
     background-color: var(--huubr-green);
   }]]&gt;</document_content>
   </document>
-  <document index="37">
+  <document index="42">
+    <source>src/app/dashboard/page.tsx</source>
+    <document_content>&lt;![CDATA['use client'
+
+import { useSession } from 'next-auth/react'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { getRedirectUrl } from '@/lib/auth-utils'
+
+export default function DashboardPage() {
+  const { data: session } = useSession()
+  const router = useRouter()
+
+  useEffect(() =&gt; {
+    if (session?.user?.role) {
+      const redirectUrl = getRedirectUrl(session.user.role)
+      if (redirectUrl !== '/dashboard') {
+        router.replace(redirectUrl)
+      }
+    }
+  }, [session, router])
+
+  if (!session) {
+    return null // Or loading state
+  }
+
+  return (
+    &lt;div className=&quot;min-h-screen p-4&quot;&gt;
+      &lt;h1 className=&quot;text-2xl font-bold mb-4&quot;&gt;Dashboard&lt;/h1&gt;
+      &lt;div className=&quot;bg-white rounded-lg shadow p-4&quot;&gt;
+        &lt;p&gt;Welcome, {session.user.name}&lt;/p&gt;
+        &lt;p&gt;Role: {session.user.role}&lt;/p&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  )
+}
+]]&gt;</document_content>
+  </document>
+  <document index="43">
+    <source>src/app/(auth)/loading.tsx</source>
+    <document_content>&lt;![CDATA[export default function AuthLoading() {
+    return (
+      &lt;div className=&quot;flex justify-center items-center min-h-screen&quot;&gt;
+        &lt;div className=&quot;animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary&quot;&gt;&lt;/div&gt;
+      &lt;/div&gt;
+    )
+  }]]&gt;</document_content>
+  </document>
+  <document index="44">
+    <source>src/app/(auth)/layout.tsx</source>
+    <document_content>&lt;![CDATA[export default function AuthLayout({
+    children,
+  }: {
+    children: React.ReactNode
+  }) {
+    return (
+      &lt;div className=&quot;min-h-screen flex flex-col justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8&quot;&gt;
+        {children}
+      &lt;/div&gt;
+    )
+  }]]&gt;</document_content>
+  </document>
+  <document index="45">
+    <source>src/app/auth/error/page.tsx</source>
+    <document_content>&lt;![CDATA['use client'
+
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+
+export default function AuthError() {
+  const searchParams = useSearchParams()
+  const error = searchParams.get('error')
+
+  return (
+    &lt;div className=&quot;min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8&quot;&gt;
+      &lt;div className=&quot;max-w-md w-full space-y-8&quot;&gt;
+        &lt;div&gt;
+          &lt;h2 className=&quot;mt-6 text-center text-3xl font-bold text-gray-900&quot;&gt;
+            Authentication Error
+          &lt;/h2&gt;
+          &lt;p className=&quot;mt-2 text-center text-sm text-gray-600&quot;&gt;
+            {error === 'Callback' 
+              ? 'There was a problem signing you in with this provider.'
+              : 'An error occurred during authentication.'}
+          &lt;/p&gt;
+          &lt;div className=&quot;mt-4 text-center&quot;&gt;
+            &lt;Link 
+              href=&quot;/login&quot;
+              className=&quot;text-primary hover:text-primary-dark&quot;
+            &gt;
+              Back to login
+            &lt;/Link&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  )
+}]]&gt;</document_content>
+  </document>
+  <document index="46">
     <source>src/app/api/check-email/route.ts</source>
     <document_content>&lt;![CDATA[import { prisma } from &quot;@/lib/prisma&quot;
 import { NextResponse } from &quot;next/server&quot;
@@ -2268,7 +2814,7 @@ export async function GET(request: Request) {
   }
 }]]&gt;</document_content>
   </document>
-  <document index="38">
+  <document index="47">
     <source>src/app/api/auth/register/route.ts</source>
     <document_content>&lt;![CDATA[import { prisma } from &quot;@/lib/prisma&quot;
 import { hash } from &quot;bcryptjs&quot;
@@ -2330,7 +2876,172 @@ export async function POST(req: Request) {
   }
 }]]&gt;</document_content>
   </document>
-  <document index="39">
+  <document index="48">
+    <source>src/app/api/auth/reset-password/route.ts</source>
+    <document_content>&lt;![CDATA[// src/app/api/auth/reset-password/route.ts
+import { prisma } from &quot;@/lib/prisma&quot;
+import { hash } from &quot;bcryptjs&quot;
+import { NextResponse } from &quot;next/server&quot;
+import crypto from 'crypto'
+
+export async function POST(req: Request) {
+  try {
+    const { token, password } = await req.json()
+
+    if (!token || !password) {
+      return NextResponse.json(
+        { error: &quot;Missing token or password&quot; },
+        { status: 400 }
+      )
+    }
+
+    // Hash the token from the URL to compare with stored hash
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex')
+
+    const user = await prisma.user.findFirst({
+      where: {
+        passwordResetToken: hashedToken,
+        passwordResetExpires: {
+          gt: new Date()
+        }
+      }
+    })
+
+    if (!user) {
+      return NextResponse.json(
+        { error: &quot;Invalid or expired reset token&quot; },
+        { status: 400 }
+      )
+    }
+
+    const hashedPassword = await hash(password, 12)
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        passwordResetToken: null,
+        passwordResetExpires: null
+      }
+    })
+
+    return NextResponse.json({ message: &quot;Password updated successfully&quot; })
+  } catch (error) {
+    console.error(&quot;Reset password error:&quot;, error)
+    return NextResponse.json(
+      { error: &quot;Failed to reset password&quot; },
+      { status: 500 }
+    )
+  }
+}]]&gt;</document_content>
+  </document>
+  <document index="49">
+    <source>src/app/api/auth/resend-verification/route.ts</source>
+    <document_content>&lt;![CDATA[// src/app/api/auth/resend-verification/route.ts
+import { NextResponse } from &quot;next/server&quot;;
+import { prisma } from &quot;@/lib/prisma&quot;;
+import crypto from 'crypto';
+import { sendEmailWithRetry } from &quot;@/lib/email&quot;;
+import VerificationEmail from &quot;@/emails/VerificationEmail&quot;;
+import { createElement } from &quot;react&quot;;
+
+export async function POST(request: Request) {
+  try {
+    const { email } = await request.json();
+
+    const user = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { error: &quot;User not found&quot; },
+        { status: 404 }
+      );
+    }
+
+    if (user.emailVerified) {
+      return NextResponse.json(
+        { error: &quot;Email already verified&quot; },
+        { status: 400 }
+      );
+    }
+
+    // Check if we can send another email (e.g., rate limiting)
+    const lastAttempt = user.emailVerificationLastAttempt;
+    if (lastAttempt &amp;&amp; Date.now() - lastAttempt.getTime() &lt; 60000) { // 1 minute cooldown
+      return NextResponse.json(
+        { error: &quot;Please wait before requesting another verification email&quot; },
+        { status: 429 }
+      );
+    }
+
+    // Generate new token
+    const newToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(newToken)
+      .digest('hex');
+
+    // Update user with new token
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        verificationToken: hashedToken,
+        emailVerificationAttempts: {
+          increment: 1
+        },
+        emailVerificationLastAttempt: new Date(),
+        emailVerificationStatus: 'PENDING'
+      }
+    });
+
+    // Send new verification email
+    try {
+      await sendEmailWithRetry({
+        to: user.email,
+        subject: &quot;Verify your email address&quot;,
+        react: createElement(VerificationEmail, {
+          verificationUrl: `${process.env.NEXT_PUBLIC_APP_URL}/verify-email?token=${newToken}`,
+          userName: user.name ?? ''
+        })
+      });
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          emailVerificationStatus: 'SENT'
+        }
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: &quot;Verification email sent successfully&quot;
+      });
+
+    } catch (error) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          emailVerificationStatus: 'FAILED'
+        }
+      });
+
+      throw error;
+    }
+
+  } catch {
+    return NextResponse.json(
+      { error: &quot;Failed to resend verification email&quot; },
+      { status: 500 }
+    );
+  }
+}]]&gt;</document_content>
+  </document>
+  <document index="50">
     <source>src/app/api/auth/forgot-password/route.ts</source>
     <document_content>&lt;![CDATA[// src/app/api/auth/forgot-password/route.ts
 
@@ -2401,29 +3112,105 @@ export async function POST(req: Request) {
   }
 }]]&gt;</document_content>
   </document>
-  <document index="40">
+  <document index="51">
     <source>src/app/api/auth/[...nextauth]/route.ts</source>
     <document_content>&lt;![CDATA[import NextAuth from &quot;next-auth&quot;
 import { authOptions } from &quot;@/lib/auth&quot;
 
-const handler = NextAuth(authOptions)
 
+const handler = NextAuth(authOptions)
 export { handler as GET, handler as POST }]]&gt;</document_content>
   </document>
-  <document index="41">
+  <document index="52">
+    <source>src/app/api/auth/verify-email/route.ts</source>
+    <document_content>&lt;![CDATA[// src/app/api/auth/verify-email/route.ts
+import { prisma } from &quot;@/lib/prisma&quot;;
+import { NextResponse } from &quot;next/server&quot;;
+import crypto from 'crypto';
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const rawToken = searchParams.get('token');
+
+    // console.log('Received raw token for verification:', rawToken);
+
+    if (!rawToken) {
+      return NextResponse.json(
+        { error: &quot;Verification token is required&quot; },
+        { status: 400 }
+      );
+    }
+
+    // Hash the received raw token
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
+
+    // console.log('Computed hash from raw token:', hashedToken);
+
+    // Find user with this hashed token
+    const user = await prisma.user.findFirst({
+      where: { 
+        verificationToken: hashedToken,
+        emailVerified: false
+      }
+    });
+
+    // console.log('Found user:', user ? 'Yes' : 'No');
+
+    if (!user) {
+      return NextResponse.json(
+        { 
+          error: &quot;Invalid verification token&quot;,
+          details: &quot;User not found or already verified&quot;
+        },
+        { status: 400 }
+      );
+    }
+
+    // Update user
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerified: true,
+        verificationToken: null
+      }
+    });
+
+    // console.log('User verified successfully');
+
+    // Return success JSON instead of redirecting
+    return NextResponse.json({ 
+      success: true,
+      message: &quot;Email verified successfully&quot; 
+    });
+
+  } catch (error) {
+    console.error(&quot;Email verification error:&quot;, error);
+    return NextResponse.json(
+      { 
+        error: &quot;Failed to verify email&quot;,
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
+  }
+}]]&gt;</document_content>
+  </document>
+  <document index="53">
     <source>src/app/api/auth/register/business/route.ts</source>
     <document_content>&lt;![CDATA[// src/app/api/auth/register/business/route.ts
-
 import { prisma } from &quot;@/lib/prisma&quot;
 import { hash } from &quot;bcryptjs&quot;
 import { NextResponse } from &quot;next/server&quot;
 import { z } from &quot;zod&quot;
-import { Prisma } from '@prisma/client'
+import { Prisma } from '.prisma/client'
 import crypto from 'crypto'
 import { sendEmail } from '@/lib/email'
 import { createElement } from 'react';
 import VerificationEmail from '@/components/emails/VerificationEmail';
-
 
 type PrismaErrorTarget = {
   target?: string[];
@@ -2457,19 +3244,30 @@ const businessRegistrationSchema = z.object({
   path: [&quot;confirmPassword&quot;],
 });
 
+
+// In your business registration route
 async function sendVerificationEmail(email: string, token: string, name: string) {
   const verificationUrl = `${process.env.NEXT_PUBLIC_APP_URL}/verify-email?token=${token}`;
   
-  await sendEmail({
-    to: email,
-    subject: &quot;Verify your email address&quot;,
-    react: createElement(VerificationEmail, {
+  try {
+    const emailComponent = createElement(VerificationEmail, {
       verificationUrl,
       userName: name
-    })
-  });
-}
+    });
 
+    const result = await sendEmail({
+      to: email,
+      subject: &quot;Verify your email address&quot;,
+      react: emailComponent
+    });
+
+    console.log('Verification email result:', result);
+    return result;
+  } catch (error) {
+    console.error('Error in sendVerificationEmail:', error);
+    throw error;
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -2512,14 +3310,20 @@ export async function POST(req: Request) {
     const hashedPassword = await hash(validatedData.password, 12)
 
     // Use transaction to create both user and business
-    const result = await prisma.$transaction(async (tx) =&gt; {
-      console.log(&quot;Starting transaction&quot;)
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) =&gt; {
+      // console.log(&quot;Starting transaction&quot;)
       
       // Generate verification token
-      const verificationToken = crypto.randomBytes(32).toString('hex')
-      console.log(`Generated verification token: ${verificationToken}`)
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto
+        .createHash('sha256')
+        .update(rawToken)
+        .digest('hex');
 
-      // Create user
+      // console.log('Generated raw token:', rawToken);
+      // console.log('Hashed token for storage:', hashedToken);
+      
+      // Create user with hashed token
       const user = await tx.user.create({
         data: {
           email: validatedData.email,
@@ -2528,12 +3332,12 @@ export async function POST(req: Request) {
           role: &quot;BUSINESS_OWNER&quot;,
           emailVerified: false,
           points: 0,
-          verificationToken,
+          verificationToken: hashedToken,
           passwordResetToken: null,
           passwordResetExpires: null
         }
       })
-      console.log(&quot;User created:&quot;, user.id)
+      // console.log(&quot;User created:&quot;, user.id)
 
       // Create business
       const business = await tx.business.create({
@@ -2550,25 +3354,36 @@ export async function POST(req: Request) {
           ownerId: user.id
         }
       })
-      console.log(&quot;Business created:&quot;, business.id)
+      // console.log(&quot;Business created:&quot;, business.id)
 
-      return { user, business }
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          emailVerificationStatus: 'PENDING',
+          emailVerificationAttempts: 0
+        }
+      });
+
+      return { user, business, rawToken }
     })
 
-   // Send verification email
-  try {
-    if (result.user.verificationToken) {
-      await sendVerificationEmail(
+    // Send verification email
+    try {
+     /* const emailResult = */await sendVerificationEmail(
         result.user.email,
-        result.user.verificationToken,
+        result.rawToken, // Use the raw token for the email
         result.user.name ?? ''
       );
-      console.log(&quot;Verification email sent successfully&quot;);
+      
+      // console.log(&quot;Verification email result:&quot;, emailResult);
+      // console.log(&quot;Verification email sent successfully&quot;, emailResult);
+    } catch (error) {
+      // console.error(&quot;Failed to send verification email:&quot;, error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Unknown error during email verification');
     }
-  } catch (error) {
-    console.error(&quot;Failed to send verification email:&quot;, error);
-    // Continue with registration even if email fails NEED TO FIX THIS BY ADDING A QUEUE!!!!
-  }  
 
   return NextResponse.json({
     success: true,
@@ -2607,7 +3422,80 @@ if (error instanceof Prisma.PrismaClientKnownRequestError) {
 }
 }]]&gt;</document_content>
   </document>
-  <document index="42">
+  <document index="54">
+    <source>src/app/verify-email/success/page.tsx</source>
+    <document_content>&lt;![CDATA[// src/app/verify-email/success/page.tsx
+import Link from 'next/link';
+
+export default function VerificationSuccessPage() {
+  return (
+    &lt;div className=&quot;min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8&quot;&gt;
+      &lt;div className=&quot;max-w-md w-full space-y-8 text-center&quot;&gt;
+        &lt;div className=&quot;rounded-full bg-green-100 p-3 mx-auto w-16 h-16&quot;&gt;
+          &lt;svg
+            className=&quot;w-10 h-10 text-green-600&quot;
+            fill=&quot;none&quot;
+            stroke=&quot;currentColor&quot;
+            viewBox=&quot;0 0 24 24&quot;
+          &gt;
+            &lt;path
+              strokeLinecap=&quot;round&quot;
+              strokeLinejoin=&quot;round&quot;
+              strokeWidth=&quot;2&quot;
+              d=&quot;M5 13l4 4L19 7&quot;
+            /&gt;
+          &lt;/svg&gt;
+        &lt;/div&gt;
+        
+        &lt;h2 className=&quot;mt-6 text-3xl font-extrabold text-gray-900&quot;&gt;
+          Email Verified Successfully!
+        &lt;/h2&gt;
+        
+        &lt;p className=&quot;mt-2 text-sm text-gray-600&quot;&gt;
+          Thank you for verifying your email. You can now log in to your account.
+        &lt;/p&gt;
+
+        &lt;div className=&quot;mt-5&quot;&gt;
+          &lt;Link
+            href=&quot;/login&quot;
+            className=&quot;inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary&quot;
+          &gt;
+            Go to Login
+          &lt;/Link&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}]]&gt;</document_content>
+  </document>
+  <document index="55">
+    <source>src/app/business/dashboard/page.tsx</source>
+    <document_content>&lt;![CDATA['use client'
+
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+
+export default function BusinessDashboardPage() {
+  const { data: session } = useSession()
+  const router = useRouter()
+
+  if (!session?.user || session.user.role !== 'BUSINESS_OWNER') {
+    router.replace('/dashboard')
+    return null
+  }
+
+  return (
+    &lt;div className=&quot;min-h-screen p-4&quot;&gt;
+      &lt;h1 className=&quot;text-2xl font-bold mb-4&quot;&gt;Business Dashboard&lt;/h1&gt;
+      &lt;div className=&quot;bg-white rounded-lg shadow p-4&quot;&gt;
+        &lt;p&gt;Welcome, {session.user.name}&lt;/p&gt;
+        &lt;p&gt;Role: {session.user.role}&lt;/p&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  )
+}]]&gt;</document_content>
+  </document>
+  <document index="56">
     <source>src/app/(auth)/register/page.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -2641,7 +3529,168 @@ export default function Home() {
   )
 }]]&gt;</document_content>
   </document>
-  <document index="43">
+  <document index="57">
+    <source>src/app/(auth)/reset-password/page.tsx</source>
+    <document_content>&lt;![CDATA[// src/app/(auth)/reset-password/page.tsx
+'use client'
+
+import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useForm } from 'react-hook-form'
+import { toast } from 'react-hot-toast'
+import { z } from 'zod'
+import { zodResolver } from '@hookform/resolvers/zod'
+import Button from '@/components/Button'
+import Link from 'next/link'
+
+const resetPasswordSchema = z.object({
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+  confirmPassword: z.string()
+}).refine((data) =&gt; data.password === data.confirmPassword, {
+  message: &quot;Passwords don't match&quot;,
+  path: [&quot;confirmPassword&quot;],
+})
+
+type ResetPasswordFormData = z.infer&lt;typeof resetPasswordSchema&gt;
+
+export default function ResetPasswordPage() {
+  const [loading, setLoading] = useState(false)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const token = searchParams.get('token')
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm&lt;ResetPasswordFormData&gt;({
+    resolver: zodResolver(resetPasswordSchema),
+  })
+
+  const onSubmit = async (data: ResetPasswordFormData) =&gt; {
+    if (!token) {
+      toast.error('Reset token is missing')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          password: data.password,
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to reset password')
+      }
+
+      toast.success('Password has been reset successfully')
+      router.push('/login')
+    } catch (error) {
+      console.error('Reset password error:', error)
+      toast.error(
+        error instanceof Error 
+          ? error.message 
+          : 'Failed to reset password'
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!token) {
+    return (
+      &lt;div className=&quot;min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4&quot;&gt;
+        &lt;div className=&quot;text-center&quot;&gt;
+          &lt;h2 className=&quot;text-2xl font-bold text-gray-900&quot;&gt;Invalid Reset Link&lt;/h2&gt;
+          &lt;p className=&quot;mt-2 text-gray-600&quot;&gt;
+            This password reset link is invalid or has expired.
+          &lt;/p&gt;
+          &lt;div className=&quot;mt-6&quot;&gt;
+            &lt;Link
+              href=&quot;/forgot-password&quot;
+              className=&quot;text-primary hover:text-primary/90&quot;
+            &gt;
+              Request a new reset link
+            &lt;/Link&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    )
+  }
+
+  return (
+    &lt;div className=&quot;min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8&quot;&gt;
+      &lt;div className=&quot;max-w-md w-full space-y-8&quot;&gt;
+        &lt;div&gt;
+          &lt;h2 className=&quot;mt-6 text-center text-3xl font-extrabold text-gray-900&quot;&gt;
+            Reset your password
+          &lt;/h2&gt;
+          &lt;p className=&quot;mt-2 text-center text-sm text-gray-600&quot;&gt;
+            Please enter your new password below
+          &lt;/p&gt;
+        &lt;/div&gt;
+
+        &lt;form className=&quot;mt-8 space-y-6&quot; onSubmit={handleSubmit(onSubmit)}&gt;
+          &lt;div className=&quot;rounded-md shadow-sm space-y-4&quot;&gt;
+            &lt;div&gt;
+              &lt;label htmlFor=&quot;password&quot; className=&quot;block text-sm font-medium text-gray-700&quot;&gt;
+                New Password
+              &lt;/label&gt;
+              &lt;input
+                {...register('password')}
+                type=&quot;password&quot;
+                id=&quot;password&quot;
+                className=&quot;mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary&quot;
+                placeholder=&quot;Enter your new password&quot;
+              /&gt;
+              {errors.password &amp;&amp; (
+                &lt;p className=&quot;mt-1 text-sm text-red-600&quot;&gt;{errors.password.message}&lt;/p&gt;
+              )}
+            &lt;/div&gt;
+
+            &lt;div&gt;
+              &lt;label htmlFor=&quot;confirmPassword&quot; className=&quot;block text-sm font-medium text-gray-700&quot;&gt;
+                Confirm Password
+              &lt;/label&gt;
+              &lt;input
+                {...register('confirmPassword')}
+                type=&quot;password&quot;
+                id=&quot;confirmPassword&quot;
+                className=&quot;mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary&quot;
+                placeholder=&quot;Confirm your new password&quot;
+              /&gt;
+              {errors.confirmPassword &amp;&amp; (
+                &lt;p className=&quot;mt-1 text-sm text-red-600&quot;&gt;{errors.confirmPassword.message}&lt;/p&gt;
+              )}
+            &lt;/div&gt;
+          &lt;/div&gt;
+
+          &lt;Button
+            type=&quot;submit&quot;
+            variant=&quot;primary&quot;
+            className=&quot;w-full&quot;
+            isLoading={loading}
+          &gt;
+            Reset Password
+          &lt;/Button&gt;
+        &lt;/form&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  )
+}]]&gt;</document_content>
+  </document>
+  <document index="58">
     <source>src/app/(auth)/forgot-password/page.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -2651,7 +3700,6 @@ import { motion } from 'framer-motion'
 import { toast } from 'react-hot-toast'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import InputField from '@/components/InputField'
 import Button from '@/components/Button'
 import Link from 'next/link'
 
@@ -2666,9 +3714,9 @@ export default function ForgotPasswordPage() {
   const [emailSent, setEmailSent] = useState(false)
 
   const {
+    register,
     handleSubmit,
-    getValues,
-    setValue,
+    watch,
     formState: { errors }
   } = useForm&lt;ForgotPasswordFormData&gt;({
     resolver: zodResolver(forgotPasswordSchema),
@@ -2699,10 +3747,6 @@ export default function ForgotPasswordPage() {
     }
   }
 
-  const handleFieldChange = (name: string, value: string) =&gt; {
-    setValue(name as keyof ForgotPasswordFormData, value)
-  }
-
   if (emailSent) {
     return (
       &lt;div className=&quot;min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8&quot;&gt;
@@ -2724,7 +3768,7 @@ export default function ForgotPasswordPage() {
             &lt;/div&gt;
             &lt;h2 className=&quot;text-2xl font-bold text-gray-900&quot;&gt;Check your email&lt;/h2&gt;
             &lt;p className=&quot;mt-2 text-gray-600&quot;&gt;
-              We&amp;apos;ve sent password reset instructions to {getValues('email')}
+              We&amp;apos;ve sent password reset instructions to {watch('email')}
             &lt;/p&gt;
             &lt;div className=&quot;mt-6&quot;&gt;
               &lt;Link
@@ -2754,16 +3798,23 @@ export default function ForgotPasswordPage() {
 
         &lt;form className=&quot;mt-8 space-y-6&quot; onSubmit={handleSubmit(onSubmit)}&gt;
           &lt;div className=&quot;rounded-md shadow-sm space-y-4&quot;&gt;
-            &lt;InputField
-              label=&quot;Email Address&quot;
-              name=&quot;email&quot;
-              type=&quot;email&quot;
-              required
-              value={getValues('email')}
-              onChange={handleFieldChange}
-              error={errors.email?.message}
-              placeholder=&quot;your.email@example.com&quot;
-            /&gt;
+            &lt;div&gt;
+              &lt;label htmlFor=&quot;email&quot; className=&quot;block text-sm font-medium text-gray-700&quot;&gt;
+                Email Address
+              &lt;/label&gt;
+              &lt;input
+                {...register('email')}
+                type=&quot;email&quot;
+                id=&quot;email&quot;
+                autoComplete=&quot;email&quot;
+                required
+                className=&quot;mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary&quot;
+                placeholder=&quot;your.email@example.com&quot;
+              /&gt;
+              {errors.email &amp;&amp; (
+                &lt;p className=&quot;mt-1 text-sm text-red-600&quot;&gt;{errors.email.message}&lt;/p&gt;
+              )}
+            &lt;/div&gt;
           &lt;/div&gt;
 
           &lt;div&gt;
@@ -2791,21 +3842,21 @@ export default function ForgotPasswordPage() {
   )
 }]]&gt;</document_content>
   </document>
-  <document index="44">
+  <document index="59">
     <source>src/app/(auth)/login/page.tsx</source>
-    <document_content>&lt;![CDATA[// src/app/(auth)/login/page.tsx
-'use client'
-
+    <document_content>&lt;![CDATA['use client'
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
-// import { motion } from 'framer-motion'
 import { toast } from 'react-hot-toast'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import InputField from '@/components/InputField'
 import Button from '@/components/Button'
 import Link from 'next/link'
+import { getRedirectUrl } from '@/lib/auth-utils'
+import { AuthInput } from '@/components/auth/AuthInput'
+import { SocialLoginButtons } from '@/components/auth/SocialLoginButtons'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email'),
@@ -2816,12 +3867,12 @@ type LoginFormData = z.infer&lt;typeof loginSchema&gt;
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
+  const router = useRouter()
 
   const {
+    register,
     handleSubmit,
     formState: { errors },
-    getValues,
-    setValue
   } = useForm&lt;LoginFormData&gt;({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -2829,7 +3880,7 @@ export default function LoginPage() {
       password: ''
     }
   })
-
+  
   const onSubmit = async (data: LoginFormData) =&gt; {
     setLoading(true)
     try {
@@ -2838,26 +3889,31 @@ export default function LoginPage() {
         email: data.email,
         password: data.password
       })
-
+  
       if (result?.error) {
         toast.error(result.error)
-      } else {
-        window.location.href = '/dashboard'
+        return
       }
+  
+      const response = await fetch('/api/auth/session')
+      const session = await response.json()
+  
+      toast.success('Logged in successfully!')
+      
+      const redirectUrl = getRedirectUrl(session?.user?.role)
+      router.push(redirectUrl)
+      router.refresh()
+  
     } catch (error) {
-        console.error('Login failed:', error);
-        toast.error(
-          error instanceof Error 
-            ? error.message 
-            : 'Login failed. Please try again.'
-        );
-      }  finally {
+      console.error('Login failed:', error)
+      toast.error(
+        error instanceof Error 
+          ? error.message 
+          : 'Login failed. Please try again.'
+      )
+    } finally {
       setLoading(false)
     }
-  }
-
-  const handleFieldChange = (name: string, value: string) =&gt; {
-    setValue(name as keyof LoginFormData, value)
   }
 
   return (
@@ -2880,26 +3936,24 @@ export default function LoginPage() {
 
         &lt;form className=&quot;mt-8 space-y-6&quot; onSubmit={handleSubmit(onSubmit)}&gt;
           &lt;div className=&quot;rounded-md shadow-sm space-y-4&quot;&gt;
-            &lt;InputField
+            &lt;AuthInput
+              id=&quot;email&quot;
               label=&quot;Email Address&quot;
-              name=&quot;email&quot;
               type=&quot;email&quot;
-              required
-              value={getValues('email')}
-              onChange={handleFieldChange}
+              register={register}
               error={errors.email?.message}
               placeholder=&quot;your.email@example.com&quot;
+              autoComplete=&quot;email&quot;
             /&gt;
 
-            &lt;InputField
+            &lt;AuthInput
+              id=&quot;password&quot;
               label=&quot;Password&quot;
-              name=&quot;password&quot;
               type=&quot;password&quot;
-              required
-              value={getValues('password')}
-              onChange={handleFieldChange}
+              register={register}
               error={errors.password?.message}
               placeholder=&quot;Enter your password&quot;
+              autoComplete=&quot;current-password&quot;
             /&gt;
           &lt;/div&gt;
 
@@ -2922,63 +3976,163 @@ export default function LoginPage() {
           &gt;
             Sign in
           &lt;/Button&gt;
-          &lt;div className=&quot;mt-6&quot;&gt;
-            &lt;div className=&quot;relative&quot;&gt;
-              &lt;div className=&quot;absolute inset-0 flex items-center&quot;&gt;
-                &lt;div className=&quot;w-full border-t border-gray-300&quot; /&gt;
-              &lt;/div&gt;
-              &lt;div className=&quot;relative flex justify-center text-sm&quot;&gt;
-                &lt;span className=&quot;px-2 bg-gray-50 text-gray-500&quot;&gt;
-                  Or continue with
-                &lt;/span&gt;
-              &lt;/div&gt;
-            &lt;/div&gt;
-
-            &lt;div className=&quot;mt-6 grid grid-cols-3 gap-3&quot;&gt;
-              &lt;Button
-                type=&quot;button&quot;
-                variant=&quot;outline&quot;
-                onClick={() =&gt; signIn('google')}
-                className=&quot;w-full&quot;
-              &gt;
-                &lt;span className=&quot;sr-only&quot;&gt;Sign in with Google&lt;/span&gt;
-                &lt;svg className=&quot;h-5 w-5&quot; fill=&quot;currentColor&quot; viewBox=&quot;0 0 24 24&quot;&gt;
-                  &lt;path d=&quot;M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z&quot;/&gt;
-                &lt;/svg&gt;
-              &lt;/Button&gt;
-              
-              &lt;Button
-                type=&quot;button&quot;
-                variant=&quot;outline&quot;
-                onClick={() =&gt; signIn('apple')}
-                className=&quot;w-full&quot;
-              &gt;
-                &lt;span className=&quot;sr-only&quot;&gt;Sign in with Apple&lt;/span&gt;
-                &lt;svg className=&quot;h-5 w-5&quot; fill=&quot;currentColor&quot; viewBox=&quot;0 0 24 24&quot;&gt;
-                  &lt;path d=&quot;M12.152,6.896c-0.948,0-2.415-1.078-3.96-1.04c-2.04,0.027-3.91,1.183-4.961,3.014c-2.117,3.675-0.546,9.103,1.519,12.087c1.013,1.454,2.208,3.09,3.792,3.039c1.52-0.065,2.09-0.987,3.935-0.987c1.831,0,2.35,0.987,3.96,0.948c1.637-0.026,2.676-1.48,3.676-2.948c1.156-1.688,1.636-3.325,1.662-3.415c-0.039-0.013-3.182-1.221-3.22-4.857c-0.026-3.04,2.48-4.494,2.597-4.559c-1.429-2.09-3.623-2.324-4.39-2.376C14.725,5.772,13.192,6.896,12.152,6.896z&quot;/&gt;
-                &lt;/svg&gt;
-              &lt;/Button&gt;
-              
-              &lt;Button
-                type=&quot;button&quot;
-                variant=&quot;outline&quot;
-                onClick={() =&gt; signIn('facebook')}
-                className=&quot;w-full&quot;
-              &gt;
-                &lt;span className=&quot;sr-only&quot;&gt;Sign in with Facebook&lt;/span&gt;
-                &lt;svg className=&quot;h-5 w-5&quot; fill=&quot;currentColor&quot; viewBox=&quot;0 0 24 24&quot;&gt;
-                  &lt;path d=&quot;M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z&quot;/&gt;
-                &lt;/svg&gt;
-              &lt;/Button&gt;
-            &lt;/div&gt;
-          &lt;/div&gt;
         &lt;/form&gt;
+
+        &lt;SocialLoginButtons /&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   )
 }]]&gt;</document_content>
   </document>
-  <document index="45">
+  <document index="60">
+    <source>src/app/customer/dashboard/page.tsx</source>
+    <document_content>&lt;![CDATA['use client'
+
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+
+export default function CustomerDashboardPage() {
+  const { data: session } = useSession()
+  const router = useRouter()
+
+  if (!session?.user || session.user.role !== 'CUSTOMER') {
+    router.replace('/dashboard')
+    return null
+  }
+
+  return (
+    &lt;div className=&quot;min-h-screen p-4&quot;&gt;
+      &lt;h1 className=&quot;text-2xl font-bold mb-4&quot;&gt;Customer Dashboard&lt;/h1&gt;
+      &lt;div className=&quot;bg-white rounded-lg shadow p-4&quot;&gt;
+        &lt;p&gt;Welcome, {session.user.name}&lt;/p&gt;
+        &lt;p&gt;Role: {session.user.role}&lt;/p&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  )
+}]]&gt;</document_content>
+  </document>
+  <document index="61">
+    <source>src/components/auth/SocialLoginButtons.tsx</source>
+    <document_content>&lt;![CDATA[import { getSession, signIn } from 'next-auth/react'
+import Button from '@/components/Button'
+import toast from 'react-hot-toast'
+import { getRedirectUrl } from '@/lib/auth-utils'
+import router from 'next/router'
+
+interface SocialLoginButtonsProps {
+  callbackUrl?: string
+}
+
+export function SocialLoginButtons({ callbackUrl = '/dashboard' }: SocialLoginButtonsProps) {
+const handleSocialLogin = async (provider: string) =&gt; {
+    try {
+        const result = await signIn(provider, {
+        redirect: false,
+        })
+    
+        if (result?.error) {
+        toast.error(result.error)
+        return
+        }
+    
+        if (result?.ok) {
+        const session = await getSession()
+        const redirectUrl = getRedirectUrl(session?.user?.role)
+        router.push(redirectUrl)
+        toast.success('Signed in successfully!')
+        }
+    } catch (error) {
+        console.error('Social login error:', error)
+        toast.error('Failed to sign in with social provider')
+    }
+    }
+  return (
+    &lt;div className=&quot;mt-6&quot;&gt;
+      &lt;div className=&quot;relative&quot;&gt;
+        &lt;div className=&quot;absolute inset-0 flex items-center&quot;&gt;
+          &lt;div className=&quot;w-full border-t border-gray-300&quot; /&gt;
+        &lt;/div&gt;
+        &lt;div className=&quot;relative flex justify-center text-sm&quot;&gt;
+          &lt;span className=&quot;px-2 bg-gray-50 text-gray-500&quot;&gt;
+            Or continue with
+          &lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div className=&quot;mt-6 grid grid-cols-3 gap-3&quot;&gt;
+        &lt;Button
+          type=&quot;button&quot;
+          variant=&quot;outline&quot;
+          onClick={() =&gt; handleSocialLogin('google')}
+          className=&quot;w-full flex items-center justify-center&quot;
+        &gt;
+          &lt;span className=&quot;sr-only&quot;&gt;Sign in with Google&lt;/span&gt;
+          &lt;svg className=&quot;h-5 w-5&quot; fill=&quot;currentColor&quot; viewBox=&quot;0 0 24 24&quot;&gt;
+            &lt;path d=&quot;M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z&quot;/&gt;
+          &lt;/svg&gt;
+        &lt;/Button&gt;
+
+        &lt;Button
+          type=&quot;button&quot;
+          variant=&quot;outline&quot;
+          onClick={() =&gt; handleSocialLogin('facebook')}
+          className=&quot;w-full flex items-center justify-center&quot;
+        &gt;
+          &lt;span className=&quot;sr-only&quot;&gt;Sign in with Facebook&lt;/span&gt;
+          &lt;svg className=&quot;h-5 w-5&quot; fill=&quot;currentColor&quot; viewBox=&quot;0 0 24 24&quot;&gt;
+            &lt;path d=&quot;M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z&quot;/&gt;
+          &lt;/svg&gt;
+        &lt;/Button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  )
+}]]&gt;</document_content>
+  </document>
+  <document index="62">
+    <source>src/components/auth/AuthInput.tsx</source>
+    <document_content>&lt;![CDATA[import { FieldValues, UseFormRegister, Path } from 'react-hook-form'
+
+interface AuthInputProps&lt;T extends FieldValues&gt; {
+id: Path&lt;T&gt;;
+label: string;
+type?: string;
+register: UseFormRegister&lt;T&gt;;
+error?: string;
+placeholder?: string;
+autoComplete?: string;
+}
+
+
+export function AuthInput&lt;T extends FieldValues&gt;({
+  id,
+  label,
+  type = 'text',
+  register,
+  error,
+  placeholder,
+  autoComplete,
+}: AuthInputProps&lt;T&gt;) {
+  return (
+    &lt;div&gt;
+      &lt;label htmlFor={id} className=&quot;block text-sm font-medium text-gray-700&quot;&gt;
+        {label}
+      &lt;/label&gt;
+      &lt;input
+        {...register(id)}
+        type={type}
+        id={id}
+        autoComplete={autoComplete}
+        className=&quot;mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary&quot;
+        placeholder={placeholder}
+      /&gt;
+      {error &amp;&amp; (
+        &lt;p className=&quot;mt-1 text-sm text-red-600&quot;&gt;{error}&lt;/p&gt;
+      )}
+    &lt;/div&gt;
+  )
+}]]&gt;</document_content>
+  </document>
+  <document index="63">
     <source>src/components/ui/modal.tsx</source>
     <document_content>&lt;![CDATA['use client'
 
@@ -3049,7 +4203,7 @@ export function Modal({ isOpen, onClose, children, title }: ModalProps) {
   )
 }]]&gt;</document_content>
   </document>
-  <document index="46">
+  <document index="64">
     <source>src/components/ui/input.tsx</source>
     <document_content>&lt;![CDATA[import * as React from &quot;react&quot;
 import { cn } from &quot;@/lib/utils&quot;
@@ -3084,7 +4238,7 @@ Input.displayName = &quot;Input&quot;
 
 export { Input }]]&gt;</document_content>
   </document>
-  <document index="47">
+  <document index="65">
     <source>src/components/ui/select.tsx</source>
     <document_content>&lt;![CDATA[import * as React from &quot;react&quot;
 import { cn } from &quot;@/lib/utils&quot;
@@ -3120,7 +4274,7 @@ Select.displayName = &quot;Select&quot;
 
 export { Select }]]&gt;</document_content>
   </document>
-  <document index="48">
+  <document index="66">
     <source>src/components/ui/checkbox.tsx</source>
     <document_content>&lt;![CDATA[import * as React from &quot;react&quot;
 import * as CheckboxPrimitive from &quot;@radix-ui/react-checkbox&quot;
@@ -3151,7 +4305,7 @@ Checkbox.displayName = CheckboxPrimitive.Root.displayName
 
 export { Checkbox }]]&gt;</document_content>
   </document>
-  <document index="49">
+  <document index="67">
     <source>src/components/emails/VerificationEmail.tsx</source>
     <document_content>&lt;![CDATA[// src/components/emails/VerificationEmail.tsx
 import {
@@ -3210,7 +4364,7 @@ export const VerificationEmail = ({
             you can safely ignore this email.
           &lt;/Text&gt;
         &lt;/Container&gt;
-      &lt;/Body&gt;
+      &lt;/Body&gt; 
     &lt;/Html&gt;
   );
 };
